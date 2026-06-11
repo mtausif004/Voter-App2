@@ -27,56 +27,57 @@ def init_db():
     conn.commit()
     conn.close()
 
-# সবগুলা কার/ফলার পজিশন এবং ক্যারেক্টার ফিক্স করার মাস্টার ইঞ্জিন
-def fix_bijoy_layout(text):
+# ক-ঁ, অ-ঔ সহ সব ধরণের কার/ফলার পজিশন ও ক্যারেক্টার ফিক্স করার কাস্টম ইঞ্জিন
+def clean_text(text):
     if not text:
         return ""
     
-    # ১. বিজয়ের বিশেষ যুক্তাক্ষর ও জটিল ডিকোডিং ম্যাপ (ক-ঁ এবং অ-ঔ সহ)
+    # ১. বিজয়ের বিশেষ জটিল যুক্তাক্ষর ও কাস্টম শব্দাংশ ডিকোড করার মাস্টার ম্যাপ
     bijoy_map = {
         "ÏমাহাŇদ": "মোহাম্মদ", "ÏমাছাŇৎ": "মোসাম্মৎ", "Ïমাঃ": "মোঃ", "Ïমাছাম্মদ": "মোসাম্মৎ",
         "Ïহােছন": "হোসেন", "Ïহােসন": "হোসেন", "Ïবগম": "বেগম", "আিńয়া": "আছিয়া",
         "হািববুর": "হাবিবুর", "ſƁĨাহার": "জেবুন্নাহার", "রাſফার": "রাশেদা",
         "িছিėক": "সিদ্দিক", "আবƃচ": "আবদুছ", "সাēার": "সাত্তার",
-        "জাĨাতুল": "জান্নাতুল", "Ïফреদৗস": "ফেরদৌস", "িরয়াদ": "রিয়াদ", "িজসান": "জিসান",
+        "জাĨাতুল": "জান্নাতুল", "Ïফреদৗস": "ফেরদৌস", "িরяд": "রিয়াদ", "িজসান": "জিসান",
         "হাƁন": "হারুন", "মরিজনা": "মর্জিনা", "Ðছয়দ": "সৈয়দ", "Ðছยอด": "সৈয়দ", "ƀয়ার": "ভূঁইয়ার",
         "পােড়ঁ": "পাড়ে", "খĤকার": "খন্দকার", "ডািêর": "ডাক্তার", "খােতজা": "খাদিজা",
         "আিলয়া": "আলিয়া", "সুলাতান": "সুলতান", "ফুরক্বান": "ফোরকান", "খাতুন,": "খাতুন",
         
-        # বিজয়ের ভাঙা ফলা এবং যুক্তাক্ষরের ক্যারেক্টার ম্যাপ
+        # বিজয়ের ভাঙা ফলা ও যুক্তাক্ষরের ইউনিকোড কনভার্সন
         "ÿå": "ট্ট", " মধË": " মধ্য", "তািরখ": "তারিখ", "তািরخ": "তারিখ", "ইউিনয়ন": "ইউনিয়ন",
         "ė": "দ্দ্ব", "ƃ": "ব্দ", "ē": "ত্ত", "Ĩ": "ন্ন", "Ɓ": "ন্ন", "ſ": "জে", "ń": "ছি",
         "রেদৗস": "রদৌস", "রেদৗ": "রদৌ", "êর": "ক্তার", "Ĥ": "ন্দ", "å": "ট", "ÿ": "ট",
-        "িপতা": "পিতা", "িঠকানা": "ঠিকানা", "Ïপশা": "পেশা", "জĥ": "জন্ম", "ভাটার": "ভোটার"
+        "িপতা": "পিতা", "িঠকানা": "ঠিকানা", "Ïপশা": "পেশা", "জĥ": "জন্ম", "ভাটার": "ভোটার",
+        "গৃিহনী": "গৃহিনী", "গৃিহণী": "গৃহিনী", "Řิมক": "শ্রমিক", "Řิมক,": "শ্রমিক,", "এওিচয়া": "এওচিয়া", "সাতকািনয়া": "সাতকানিয়া"
     }
     
     for broken, correct in bijoy_map.items():
         text = text.replace(broken, correct)
 
     # ২. কার-চিহ্নের পজিশন ফিক্সার (Regex Position Fixer)
-    # ও-কার ফিক্স (Ï বা ে + অক্ষর + া -> অক্ষর + ো)
+    # ও-কার পজিশন ফিক্স (Ï বা ে + ব্যঞ্জনবর্ণ + া -> ব্যঞ্জনবর্ণ + ো)
     text = re.sub(r'[Ïে]([\u0980-\u09FA])া', r'\1ো', text)
     text = re.sub(r'[Ïে]([\u0980-\u09FA][্][\u0980-\u09FA])া', r'\1ো', text) # যুক্তাক্ষরের ও-কার
     
-    # ঔ-কার ফিক্স (Ï বা ে + অক্ষর + ৗ -> অক্ষর + ৌ)
+    # ঔ-কার পজিশন ফিক্স (Ï বা ে + ব্যঞ্জনবর্ণ + ৗ -> ব্যঞ্জনবর্ণ + ৌ)
     text = re.sub(r'[Ïে]([\u0980-\u09FA])ৗ', r'\1ৌ', text)
     text = re.sub(r'[Ïে]([\u0980-\u09FA][্][\u0980-\u09FA])ৗ', r'\1ৌ', text) # যুক্তাক্ষরের ঔ-কার
 
-    # ই-কার ফিক্স (ি + অক্ষর -> অক্ষর + ি)
+    # ই-কার পজিশন ফিক্স (ি + ব্যঞ্জনবর্ণ -> ব্যঞ্জনবর্ণ + ি)
     text = re.sub(r'ি([\u0980-\u09FA])', r'\1ি', text)
     text = re.sub(r'ি([\u0980-\u09FA][্][\u0980-\u09FA])', r'\1ি', text) # যুক্তাক্ষরের ই-কার
 
-    # এ-কার ফিক্স (Ï বা ে + অক্ষর -> অক্ষর + ে)
+    # এ-কার পজিশন ফিক্স (Ï বা ে + ব্যঞ্জনবর্ণ -> ব্যঞ্জনবর্ণ + ে)
     text = re.sub(r'[Ïে]([\u0980-\u09FA])', r'\1ে', text)
     text = re.sub(r'[Ïে]([\u0980-\u09FA][্][\u0980-\u09FA])', r'\1ে', text) # যুক্তাক্ষরের এ-কার
 
-    # ঐ-কার ফিক্স (ৈ + অক্ষর -> অক্ষর + ৈ)
+    # ঐ-কার পজিশন ফিক্স (ৈ + ব্যঞ্জনবর্ণ -> ব্যঞ্জনবর্ণ + ৈ)
     text = re.sub(r'ৈ([\u0980-\u09FA])', r'\1ৈ', text)
     text = re.sub(r'ৈ([\u0980-\u09FA][্][\u0980-\u09FA])', r'\1ৈ', text) # যুক্তাক্ষরের ঐ-কার
 
-    # ৩. ক-ঁ এবং অন্যান্য অবশিষ্টাংশ ক্যারেক্টার ক্লিনিং
-    text = re.sub(r'[^\u0980-\u09FF\s\d/.,:-।()]', '', text) # শুধুমাত্র বাংলা ক্যারেক্টার ও কমন সিম্বল রাখবে
-    text = re.sub(r'\s+', ' ', text) # অতিরিক্ত স্পেস রিমুভ
+    # ৩. শুধুমাত্র বাংলা ইউনিকোড ক্যারেক্টার ও কমন সিম্বল রেখে বাকি ভাঙা অবশিষ্টাংশ ক্লিন করা
+    text = re.sub(r'[^\u0980-\u09FF\s\d/.,:-।()্]', '', text)
+    text = re.sub(r'\s+', ' ', text) # অতিরিক্ত স্পেস ট্রিম করা
     return text.strip()
 
 def process_pdf(uploaded_file):
@@ -84,7 +85,6 @@ def process_pdf(uploaded_file):
     cursor = conn.cursor()
     filename = uploaded_file.name
     
-    # pypdf লাইব্রেরি যা ভোটার কাউন্ট একদম নিখুঁত রাখে
     reader = pypdf.PdfReader(uploaded_file)
     full_text = ""
     for page in reader.pages:
@@ -92,33 +92,27 @@ def process_pdf(uploaded_file):
         if text:
             full_text += text + "\n"
             
-    # এলাকা ডিটেকশন
-    area_name = "মধ্য এওচিয়া"
-    for line in full_text.split('\n'):
-        if "ভোটার এলাকার নাম" in line or ("নাম:" in line and "এও" in line) or "ভোটার এলাকা" in line or "নাম: মধ" in line:
-            if ":" in line:
-                area_name = line.split(":")[-1].strip()
-            elif "নাম" in line:
-                area_name = line.replace("ভোটার এলাকার নাম", "").strip()
-            break
-    area_name = fix_bijoy_layout(area_name)
+    # আপনার কোডের মূল ভোটার এলাকা বের করার লজিক
+    area_match = re.search(r"(?:ভোটার এলাকার নাম|এলাকার নাম|ভোটার এলাকা):\s*([^\n\r]+)", full_text)
+    area_name = area_match.group(1).strip() if area_match else "মধ্য এওচিয়া"
+    area_name = clean_text(area_name)
 
-    # বিজয় কোডের প্যাটার্ন ম্যাচ করার জন্য মাস্টার রেগুলার এক্সপ্রেশন
-    pattern = r"(\d{4})\.\s*নাম:\s*(.*?)\s*(?:ভোটার নং|Ïভাটার নং|ভোটার নং:)\s*(\d+).*?(?:পিতা|িপতা):\s*(.*?)\s*(?:মাতা|مাতা|মাতা:):\s*(.*?)\s*.*?(?:পেশা|Ïপশা):\s*(.*?),\s*(?:জন্ম তারিখ|জĥ তাির[খخ]):\s*([\d/]+)\s*.*?(?:ঠিকানা|িঠকানা):\s*(.*?)(?=\s*\d{4}\.\s*নাম:|$)"
+    # ভোটারদের ব্লক খোঁজার জন্য আপনার পূর্বের সেই সফল ১-টু-১ নিখুঁত রেগুলার এক্সপ্রেশন প্যাটার্ন
+    pattern = r"(\d{4})\.\s*নাম:\s*(.*?)\s*(?:ভোটার নং|Ïভাটার নং):\s*(\d+)\s*(?:পিতা|িপতা):\s*(.*?)\s*(?:মাতা|ماتا):\s*(.*?)\s*(?:পেশা|Ïপشا|Ïপশা):\s*(.*?),\s*(?:জন্ম তারিখ|জĥ তািরখ|জĥ তািরخ):\s*([\d/]+)\s*(?:ঠিকানা|িঠকানা):\s*(.*?)(?=\s*\d{4}\.\s*নাম:|$)"
     matches = re.findall(pattern, full_text, re.DOTALL)
 
     voters_added = 0
     for match in matches:
         serial_no = match[0].strip()
-        name = fix_bijoy_layout(match[1])
+        name = clean_text(match[1])
         voter_no = match[2].strip()
-        father_name = fix_bijoy_layout(match[3])
-        mother_name = fix_bijoy_layout(match[4])
-        profession = fix_bijoy_layout(match[5])
+        father_name = clean_text(match[3])
+        mother_name = clean_text(match[4])
+        profession = clean_text(match[5])
         dob = match[6].strip()
-        address = fix_bijoy_layout(match[7])
+        address = clean_text(match[7])
         
-        # ডুপ্লিকেট এন্ট্রি চেক
+        # ডুপ্লিকেট চেক
         cursor.execute("SELECT id FROM voters WHERE voter_no = ?", (voter_no,))
         if not cursor.fetchone():
             cursor.execute('''
@@ -135,16 +129,17 @@ def process_pdf(uploaded_file):
 st.set_page_config(page_title="স্মার্ট ভোটার ডাটাবেজ", layout="wide")
 init_db()
 
-st.title("🎯 ভোটার ডিরেক্টরি充ম্যানেজার ও স্মার্ট সার্চ")
+st.title("🎯 ভোটার ডিরেক্টরি ম্যানেজার ও স্মার্ট সার্চ")
 st.write("বামপাশের সাইডবার থেকে আপনার ভোটার তালিকার পিডিএফ ফাইলটি আপলোড করুন।")
 
+# সাইডবার কন্ট্রোল
 with st.sidebar:
     st.header("📁 পিডিএফ ডাটা ইনপুট")
     uploaded_files = st.file_uploader("একাধিক ভোটার তালিকা (PDF) এখানে ড্রপ করুন", type=["pdf"], accept_multiple_files=True)
     
     if uploaded_files:
         if st.button("🔄 ডাটাবেজে যুক্ত করুন"):
-            with st.spinner("পিডিএফ প্রসেস হচ্ছে এবং বিজয় ফন্ট পজিশন ঠিক করা হচ্ছে..."):
+            with st.spinner("পিডিএফ প্রসেস হচ্ছে..."):
                 for f in uploaded_files:
                     added, area = process_pdf(f)
                     st.success(f"সফল: {f.name} ➡️ {added} জন নতুন ভোটার যুক্ত!")
@@ -165,7 +160,7 @@ with st.sidebar:
         conn.close()
         st.experimental_rerun()
 
-# সার্চ প্যানেল (কার্ড ব্যাকগ্রাউন্ড = সাদা, টেক্সট = কালো)
+# সার্চ প্যানেল
 st.subheader("🔍 অ্যাডভান্সড সার্চ ফিল্টার")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -182,6 +177,7 @@ with col4:
     search_prof = st.text_input("পেশা")
     search_dob = st.text_input("জন্ম তারিখ")
 
+# ডাটাবেজ কোয়েরি
 conn = sqlite3.connect(DB_NAME)
 query = "SELECT serial_no, name, voter_no, father_name, mother_name, profession, dob, address, area_name, pdf_filename FROM voters WHERE 1=1"
 params = []
@@ -214,7 +210,7 @@ if not df.empty:
         mime='text/csv',
     )
     
-    st.write("### 🪪 ভোটার আইডিカードসমূহ:")
+    st.write("### 🪪 ভোটার আইডি কার্ডসমূহ:")
     
     for i in range(0, len(df), 2):
         card_cols = st.columns(2)
