@@ -1,0 +1,224 @@
+import streamlit as st
+import pandas as pd
+import sqlite3
+import pdfplumber
+import re
+
+DB_NAME = "voter_database.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS voters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            serial_no TEXT,
+            name TEXT,
+            voter_no TEXT,
+            father_name TEXT,
+            mother_name TEXT,
+            profession TEXT,
+            dob TEXT,
+            address TEXT,
+            area_name TEXT,
+            pdf_filename TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+# নির্বাচন কমিশনের পিডিএফের বিশেষ ফন্ট ভাঙা ফিক্স করার ম্যাজিক ডিকশনারি
+def fix_broken_bengali(text):
+    if not text:
+        return ""
+    
+    # অক্ষর ভিত্তিক সুনির্দিষ্ট ডিকোডিং ম্যাপ
+    decoding_map = {
+        "ÏমাহাŇদ": "মোহাম্মদ", "ÏমাছাŇৎ": "মোসাম্মৎ", "Ïমাঃ": "মোঃ",
+        "Ïহােছন": "হোসেন", "Ïহােসন": "হোসেন", "Ïবগম": "বেগম",
+        "িপতা:": "পিতা:", "িঠকানা:": "ঠিকানা:", "Ïপশা:": "পেশা:",
+        "জĥ তািরখ:": "জন্ম তারিখ:", "জĥ তািরخ:": "জন্ম তারিখ:", "জহ তািরখ:": "জন্ম তারিখ:",
+        "গৃিহনী": "গৃহিনী", "গৃিহণী": "গৃহিনী", "Řิมক": "শ্রমিক", "Řิมক,": "শ্রমিক,",
+        "চÿåাম": "চট্টগ্রাম", " মধË": "মধ্য", "এওিচয়া": "এওচিয়া", "সাতকািনয়া": "সাতকানিয়া",
+        "আিńয়া": "আছিয়া", "হািববুর": "হাবিবুর", "ſƁĨাহার": "জেবুন্নাহার", "রাſফার": "রাশেদা",
+        "Ïভাটার": "ভোটার", "িছিėক": "সিদ্দিক", "আবƃচ": "আব্দুস", "সাēার": "সাত্তার",
+        "জাĨাতুল": "জান্নাতুল", "Ïফреদৗস": "ফেরদৌস", "িরয়াদ": "রিয়াদ", "িজসান": "জিসান",
+        "হাƁন": "হারুন", "মরিজনা": "মর্জিনা", "Ðছয়দ": "সৈয়দ", "ƀয়ার": "ভূঁইয়ার",
+        "পােড়ঁ": "পাড়ে", "খĤকার": "খন্দকার", "ডািêর": "ডাক্তার", "খােতজা": "খাদিজা",
+        "আিলয়া": "আলিয়া", "সুলাতান": "সুলতান", "ফুরক্বান": "ফোরকান"
+    }
+    
+    # পুরো শব্দের ম্যাচিং ফিক্স
+    for broken, correct in decoding_map.items():
+        text = text.replace(broken, correct)
+        
+    # একক অক্ষর বা কার-চিহ্নের ভাঙা অংশ জোড়া লাগানো
+    char_replacements = {
+        "Ïভ": "ভো", "Ïম": "মো", "Ïহ": "হো", "Ïব": "বে", "Ïর": "রো", "Ïখ": "খো", "Ïদ": "দে", "Ïত": "তো",
+        "িপ": "পি", "িঠ": "ঠি", "িচ": "চি", "িক": "কি", "িহ": "হি", "িড়": "ড়ি", "িমি": "মি", "িবি": "বি",
+        "িজি": "জি", "িমি": "মি", "িড": "ডি", "ি র": "রি", "িমি": "মি", "িন": "নি", "িল": "লি", "িশ": "শি",
+        "িম": "মি", "ির": "রি", "িস": "সি", "িত": "তি", "িভ": "ভি", "িধ": "ধি", "িথ": "থি", "িজ": "জি",
+        "ÿå": "ট্ট", " মধË": " মধ্য", "তািরখ": "তারিখ", "তািরخ": "তারিখ"
+    }
+    for broken, correct in char_replacements.items():
+        text = text.replace(broken, correct)
+        
+    # অতিরিক্ত ক্লিনিং
+    text = re.sub(r'[^\w\s\d/.,:-।()-]', '', text)
+    return text.strip()
+
+def process_pdf(uploaded_file):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    filename = uploaded_file.name
+    
+    full_text = ""
+    # pdfplumber ব্যবহার করে আরও নিখুঁতভাবে টেক্সট এক্সট্র্যাক্ট করা
+    with pdfplumber.open(uploaded_file) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                full_text += text + "\n"
+                
+    # এলাকা ডিটেকশন
+    area_match = re.search(r"(?:ভোটার এলাকার নাম|এলাকার নাম|এলাকার নাম:)\s*([^\n\r]+)", full_text)
+    area_name = area_match.group(1).strip() if area_match else "মধ্য এওচিয়া"
+    area_name = fix_broken_bengali(area_name)
+
+    # রেগুলার এক্সপ্রেশন দিয়ে ভোটার ডাটার ব্লক খোঁজা
+    # পিডিএফের নির্দিষ্ট ইন্ডেন্টেশন বা লাইনের ওপর ভিত্তি করে প্যাটার্ন তৈরি
+    pattern = r"(\d{4})\.\s*নাম:\s*(.*?)\s*(?:ভোটার নং|Ïভাটার নং|ভোটার নং:)\s*(\d+)\s*(?:পিতা|িপতা|পিতা:)\s*(.*?)\s*(?:মাতা|ماتا|মাতা:)\s*(.*?)\s*(?:পেশা|Ïপশা|পেশা:)\s*(.*?),\s*(?:জন্ম তারিখ|জĥ তািরখ|জন্ম তারিখ:)\s*([\d/]+)\s*(?:ঠিকানা|িঠকানা|ঠিকানা:)\s*(.*?)(?=\s*\d{4}\.\s*নাম:|$)"
+    matches = re.findall(pattern, full_text, re.DOTALL)
+
+    voters_added = 0
+    for match in matches:
+        serial_no = match[0].strip()
+        name = fix_broken_bengali(match[1])
+        voter_no = match[2].strip()
+        father_name = fix_broken_bengali(match[3])
+        mother_name = fix_broken_bengali(match[4])
+        profession = fix_broken_bengali(match[5])
+        dob = match[6].strip()
+        address = fix_broken_bengali(match[7])
+        
+        # ডুপ্লিকেট এড়ানো
+        cursor.execute("SELECT id FROM voters WHERE voter_no = ?", (voter_no,))
+        if not cursor.fetchone():
+            cursor.execute('''
+                INSERT INTO voters (serial_no, name, voter_no, father_name, mother_name, profession, dob, address, area_name, pdf_filename)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (serial_no, name, voter_no, father_name, mother_name, profession, dob, address, area_name, filename))
+            voters_added += 1
+            
+    conn.commit()
+    conn.close()
+    return voters_added, area_name
+
+# --- Streamlit UI ---
+st.set_page_config(page_title="স্মার্ট ভোটার ডাটাবেজ", layout="wide")
+init_db()
+
+st.title("🎯 ভোটার ডিরেক্টরি ম্যানেজার ও স্মার্ট সার্চ (ফিক্সড এনকোডিং)")
+st.write("বামপাশের সাইডবার থেকে আপনার ভোটার তালিকার পিডিএফ ফাইলটি আপলোড করুন।")
+
+with st.sidebar:
+    st.header("📁 পিডিএফ ডাটা ইনপুট")
+    uploaded_files = st.file_uploader("একাধিক ভোটার তালিকা (PDF) এখানে ড্রপ করুন", type=["pdf"], accept_multiple_files=True)
+    
+    if uploaded_files:
+        if st.button("🔄 ডাটাবেজে যুক্ত করুন"):
+            with st.spinner("পিডিএফ প্রসেস হচ্ছে এবং ফন্ট ঠিক করা হচ্ছে..."):
+                for f in uploaded_files:
+                    added, area = process_pdf(f)
+                    st.success(f"সফল: {f.name} ➡️ {added} জন নতুন ভোটার যুক্ত!")
+                    
+    st.markdown("---")
+    conn = sqlite3.connect(DB_NAME)
+    total_count = conn.execute("SELECT COUNT(*) FROM voters").fetchone()[0]
+    unique_files = conn.execute("SELECT DISTINCT pdf_filename FROM voters").fetchall()
+    conn.close()
+    
+    st.metric(label="ডাটাবেজে মোট ভোটার সংখ্যা", value=total_count)
+    st.write(f"মোট সোর্স পিডিএফ ফাইল: {len(unique_files)} টি")
+    
+    if st.button("⚠️ ডাটাবেজ সম্পূর্ণ মুছুন"):
+        conn = sqlite3.connect(DB_NAME)
+        conn.execute("DELETE FROM voters")
+        conn.commit()
+        conn.close()
+        st.experimental_rerun()
+
+# সার্চ প্যানেল
+st.subheader("🔍 অ্যাডভান্সড সার্চ ফিল্টার")
+
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    search_voter_no = st.text_input("ভোটার নম্বর")
+    search_name = st.text_input("ভোটারের নাম")
+with col2:
+    search_serial = st.text_input("সিরিয়াল নম্বর")
+    search_father = st.text_input("পিতার নাম")
+with col3:
+    search_address = st.text_input("ঠিকানা/গ্রাম")
+    search_pdf = st.text_input("পিডিএফ ফাইলের নাম")
+with col4:
+    search_prof = st.text_input("পেশা")
+    search_dob = st.text_input("জন্ম তারিখ")
+
+conn = sqlite3.connect(DB_NAME)
+query = "SELECT serial_no, name, voter_no, father_name, mother_name, profession, dob, address, area_name, pdf_filename FROM voters WHERE 1=1"
+params = []
+
+if search_voter_no: query += " AND voter_no LIKE ?"; params.append(f"%{search_voter_no}%")
+if search_name: query += " AND name LIKE ?"; params.append(f"%{search_name}%")
+if search_serial: query += " AND serial_no LIKE ?"; params.append(f"%{search_serial}%")
+if search_father: query += " AND father_name LIKE ?"; params.append(f"%{search_father}%")
+if search_address: query += " AND address LIKE ?"; params.append(f"%{search_address}%")
+if search_pdf: query += " AND pdf_filename LIKE ?"; params.append(f"%{search_pdf}%")
+if search_prof: query += " AND profession LIKE ?"; params.append(f"%{search_prof}%")
+if search_dob: query += " AND dob LIKE ?"; params.append(f"%{search_dob}%")
+
+df = pd.read_sql_query(query, conn, params=params)
+conn.close()
+
+st.markdown("---")
+if not df.empty:
+    st.success(f"🔍 অনুসন্ধানে মোট {len(df)} জন ভোটারের তথ্য পাওয়া গেছে।")
+    
+    default_csv_name = "filtered_voter_data.csv"
+    if search_pdf:
+        default_csv_name = f"{search_pdf.replace('.pdf', '')}.csv"
+        
+    csv_data = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label=f"📥 এই ডাটাটি {default_csv_name} হিসেবে ডাউনলোড করুন",
+        data=csv_data,
+        file_name=default_csv_name,
+        mime='text/csv',
+    )
+    
+    st.write("### 🪪 ভোটার আইডি কার্ডসমূহ:")
+    
+    for i in range(0, len(df), 2):
+        card_cols = st.columns(2)
+        for idx, col in enumerate(card_cols):
+            if i + idx < len(df):
+                row = df.iloc[i + idx]
+                with col:
+                    st.markdown(f"""
+                    <div style="border: 2px solid #000000; border-radius: 8px; padding: 15px; margin-bottom: 15px; background-color: #FFFFFF; box-shadow: 2px 2px 5px rgba(0,0,0,0.15);">
+                        <span style="background-color: #000000; color: #FFFFFF; padding: 3px 10px; border-radius: 4px; font-size: 0.85em; float: right; font-weight: bold;">সিরিয়াল: {row['serial_no']}</span>
+                        <h4 style="color: #000000; margin-top: 0; margin-bottom: 12px; font-weight: bold; border-bottom: 2px solid #000000; padding-bottom: 5px;">🗳️ ভোটার তথ্য কার্ড</h4>
+                        <p style="margin: 5px 0; color: #000000; font-size: 1.05em;"><b>নাম:</b> {row['name']}</p>
+                        <p style="margin: 5px 0; color: #000000; font-size: 1.05em;"><b>ভোটার নং:</b> <span style="font-weight: bold; text-decoration: underline;">{row['voter_no']}</span></p>
+                        <p style="margin: 5px 0; color: #000000;"><b>পিতার নাম:</b> {row['father_name']}</p>
+                        <p style="margin: 5px 0; color: #000000;"><b>মাতার নাম:</b> {row['mother_name']}</p>
+                        <p style="margin: 5px 0; color: #000000;"><b>পেশা:</b> {row['profession']} | <b>জন্ম তারিখ:</b> {row['dob']}</p>
+                        <p style="margin: 5px 0; color: #000000; font-size: 0.95em;"><b>ঠিকানা:</b> {row['address']}</p>
+                        <hr style="margin: 10px 0; border: 0; border-top: 1px solid #000000;">
+                        <p style="margin: 0; font-size: 0.8em; color: #000000;">📂 <b>উৎস ফাইল:</b> {row['pdf_filename']}</p>
+                        <p style="margin: 2px 0 0 0; font-size: 0.85em; color: #000000; text-align: right; font-weight: bold;">📍 এলাকা: {row['area_name']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+else:
+    st.info("কোনো ডাটা পাওয়া যায়নি। অনুগ্রহ করে বামপাশের সাইডবার থেকে পিডিএফ আপলোড করুন বা সঠিক ফিল্টার ইনপুট দিন।")
